@@ -1,69 +1,15 @@
 use std::iter::Peekable;
-use std::fmt;
 use std::char;
+use super::token::*;
 
-pub enum Token {
-    And,
-    Or,
-    Equal,
-    NotEqual,
-    LessEqual,
-    GreaterEqual,
-    AssignPlus,
-    AssignMinus,
-    AssignMultiply,
-    AssignDivide,
-    AssignMod,
-    Increment,
-    Decrement,
-    Arrow,
-    Ident(String),
-    Binary{v: String, t: String},
-    Octal{v: String, t: String},
-    Decimal{v: String, t: String},
-    Hexadecimal{v: String, t: String},
-    Float{v: String, t: String},
-    StringLiteral(String),
-    Char(char),
-}
-
-impl fmt::Display for Token {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Token::And => write!(f, "<And>"),
-            &Token::Or => write!(f, "<Or>"),
-            &Token::Equal => write!(f, "<Equal>"),
-            &Token::NotEqual => write!(f, "<NotEqual>"),
-            &Token::LessEqual => write!(f, "<LessEqual>"),
-            &Token::GreaterEqual => write!(f, "<GreaterEqual>"),
-            &Token::AssignPlus => write!(f, "<AssignPlus>"),
-            &Token::AssignMinus => write!(f, "<AssignMinus>"),
-            &Token::AssignMultiply => write!(f, "<AssignMultiply>"),
-            &Token::AssignDivide => write!(f, "<AssignDivide>"),
-            &Token::AssignMod => write!(f, "<AssignMod>"),
-            &Token::Increment => write!(f, "<Increment>"),
-            &Token::Decrement => write!(f, "<Decrement>"),
-            &Token::Arrow => write!(f, "<Arrow>"),
-            &Token::Ident(ref s) => write!(f, "<Ident=\"{}\">", s),
-            &Token::Binary{ref v, ref t} => write!(f, "<Binary={} trail=\"{}\">", v, t),
-            &Token::Octal{ref v, ref t} => write!(f, "<Octal={} trail=\"{}\">", v, t),
-            &Token::Decimal{ref v, ref t} => write!(f, "<Decimal={} trail=\"{}\">", v, t),
-            &Token::Hexadecimal{ref v, ref t} => write!(f, "<Hexadecimal={} trail=\"{}\">", v, t),
-            &Token::Float{ref v, ref t} => write!(f, "<Float={} trail=\"{}\">", v, t),
-            &Token::StringLiteral(ref s) => write!(f, "<String=\"{}\">", s),
-            &Token::Char(c) => write!(f, "<{}>", c),
-        }
-    }
-}
-
-pub struct Lex<I: Iterator<Item=char>> {
+pub struct Lexer<I: Iterator<Item=char>> {
     iter: Peekable<I>,
     saved_char: Option<char>,
 }
 
-impl<I: Iterator<Item=char>> Lex<I> {
-    pub fn new(iter: I) -> Lex<I> {
-        Lex { iter: iter.peekable(), saved_char: None }
+impl<I: Iterator<Item=char>> Lexer<I> {
+    pub fn new(iter: I) -> Lexer<I> {
+        Lexer { iter: iter.peekable(), saved_char: None }
     }
 
     fn skip_whitespace(&mut self) -> Option<char> {
@@ -329,7 +275,7 @@ impl<I: Iterator<Item=char>> Lex<I> {
     }
 }
 
-impl<I: Iterator<Item=char>> Iterator for Lex<I> {
+impl<I: Iterator<Item=char>> Iterator for Lexer<I> {
     type Item = Token;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -369,7 +315,7 @@ impl<I: Iterator<Item=char>> Iterator for Lex<I> {
             ('0', Some(t @ 'o')) |
             ('0', Some(t @ 'x')) |
             ('0', Some(t @ 'X')) => self.lex_constant(t),
-            ('.', Some('0'...'9')) |
+            //('.', Some('0'...'9')) |
             ('0'...'9', _) => self.lex_decimal(c),
             ('"', _) => self.lex_str_literal(),
             (_, _) => Some(Token::Char(c)),
