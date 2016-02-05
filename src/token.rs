@@ -1,4 +1,4 @@
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub enum Token {
     Ident(String),
     // Single character terminals
