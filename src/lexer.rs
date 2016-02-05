@@ -1,15 +1,40 @@
 use std::iter::Peekable;
 use std::char;
+use std::collections::HashMap;
 use super::token::*;
 
 pub struct Lexer<I: Iterator<Item=char>> {
     iter: Peekable<I>,
     saved_char: Option<char>,
+    keywords: HashMap<String, Token>,
 }
 
 impl<I: Iterator<Item=char>> Lexer<I> {
     pub fn new(iter: I) -> Lexer<I> {
-        Lexer { iter: iter.peekable(), saved_char: None }
+        let mut keywords = HashMap::new();
+
+        keywords.insert("if".to_string(), Token::If);
+        keywords.insert("else".to_string(), Token::Else);
+        keywords.insert("do".to_string(), Token::Do);
+        keywords.insert("While".to_string(), Token::While);
+        keywords.insert("For".to_string(), Token::For);
+
+        keywords.insert("u8".to_string(), Token::U8);
+        keywords.insert("u16".to_string(), Token::U16);
+        keywords.insert("u32".to_string(), Token::U32);
+        keywords.insert("u64".to_string(), Token::U64);
+        keywords.insert("usize".to_string(), Token::Usize);
+        keywords.insert("i8".to_string(), Token::I8);
+        keywords.insert("i16".to_string(), Token::I16);
+        keywords.insert("i32".to_string(), Token::I32);
+        keywords.insert("i64".to_string(), Token::I64);
+        keywords.insert("isize".to_string(), Token::Isize);
+
+        Lexer {
+            iter: iter.peekable(),
+            saved_char: None,
+            keywords: keywords,
+        }
     }
 
     fn skip_whitespace(&mut self) -> Option<char> {
@@ -41,7 +66,10 @@ impl<I: Iterator<Item=char>> Lexer<I> {
             };
         }
 
-        Some(Token::Ident(val))
+        Some(match self.keywords.get(&val).cloned() {
+            Some(t) => t,
+            None => Token::Ident(val),
+        })
     }
 
     fn lex_constant(&mut self, t: char) -> Option<Token> {
@@ -318,7 +346,7 @@ impl<I: Iterator<Item=char>> Iterator for Lexer<I> {
             //('.', Some('0'...'9')) |
             ('0'...'9', _) => self.lex_decimal(c),
             ('"', _) => self.lex_str_literal(),
-            (_, _) => Some(Token::Char(c)),
+            (_, _) => Some(Token::Term(c)),
         }
     }
 }

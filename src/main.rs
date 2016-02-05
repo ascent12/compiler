@@ -1,6 +1,5 @@
 use std::io::prelude::*;
 use std::fs::File;
-//use std::str::Chars;
 
 mod token;
 mod lexer;
@@ -12,6 +11,6 @@ fn main() {
     f.read_to_string(&mut s).unwrap();
 
     for t in Lexer::new(s.chars()) {
-        println!("{}", t);
+        println!("{:?}", t);
     }
 }
