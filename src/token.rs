@@ -49,4 +49,6 @@ pub enum Token {
     I32,
     I64,
     Isize,
+
+    EndOfFile,
 }

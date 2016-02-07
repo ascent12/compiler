@@ -1,52 +1,87 @@
-use std::iter::Peekable;
 use std::char;
 use std::collections::HashMap;
 use super::token::*;
+use super::token::Token::*;
 
-pub struct Lexer<I: Iterator<Item=char>> {
-    iter: Peekable<I>,
-    saved_char: Option<char>,
+struct Save<I>
+where I: Iterator<Item=char> {
+    iter: I,
+    curr: Option<char>,
+    save: bool,
+}
+
+impl<I> Save<I>
+where I: Iterator<Item=char> {
+    fn new(iter: I) -> Save<I> {
+        Save { iter: iter, curr: None, save: false }
+    }
+
+    fn save(&mut self) {
+        self.save = true
+    }
+}
+
+impl<I> Iterator for Save<I>
+where I: Iterator<Item=char> {
+    type Item = char;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.save {
+            self.save = false;
+        } else {
+            self.curr = self.iter.next();
+        }
+
+        self.curr
+    }
+}
+
+pub struct Lexer<I>
+where I: Iterator<Item=char> {
+    iter: Save<I>,
+    eof: Option<Token>,
+
     keywords: HashMap<String, Token>,
 }
 
 impl<I: Iterator<Item=char>> Lexer<I> {
     pub fn new(iter: I) -> Lexer<I> {
-        let mut keywords = HashMap::new();
+        let keywords = hash![
+            "if"    => If,
+            "else"  => Else,
+            "do"    => Do,
+            "while" => While,
+            "for"   => For,
 
-        keywords.insert("if".to_string(), Token::If);
-        keywords.insert("else".to_string(), Token::Else);
-        keywords.insert("do".to_string(), Token::Do);
-        keywords.insert("While".to_string(), Token::While);
-        keywords.insert("For".to_string(), Token::For);
-
-        keywords.insert("u8".to_string(), Token::U8);
-        keywords.insert("u16".to_string(), Token::U16);
-        keywords.insert("u32".to_string(), Token::U32);
-        keywords.insert("u64".to_string(), Token::U64);
-        keywords.insert("usize".to_string(), Token::Usize);
-        keywords.insert("i8".to_string(), Token::I8);
-        keywords.insert("i16".to_string(), Token::I16);
-        keywords.insert("i32".to_string(), Token::I32);
-        keywords.insert("i64".to_string(), Token::I64);
-        keywords.insert("isize".to_string(), Token::Isize);
+            "u8"    => U8,
+            "u16"   => U16,
+            "u32"   => U32,
+            "u64"   => U64,
+            "usize" => Usize,
+            "i8"    => I8,
+            "i16"   => I16,
+            "i32"   => I32,
+            "i64"   => I64,
+            "isize" => Isize,
+        ];
 
         Lexer {
-            iter: iter.peekable(),
-            saved_char: None,
+            iter: Save::new(iter),
+            eof: Some(EndOfFile),
             keywords: keywords,
         }
     }
 
-    fn skip_whitespace(&mut self) -> Option<char> {
-        for c in self.saved_char.take().iter().cloned().chain(self.iter.by_ref()) {
+    fn skip_whitespace(&mut self) {
+        for c in self.iter.by_ref() {
             match c {
                 ' '|'\t'|'\r' => { },
                 '\n' => { },
-                _ => return Some(c),
+                _ => break,
             };
         }
 
-        None
+        self.iter.save();
     }
 
     fn lex_ident(&mut self, c: char) -> Option<Token> {
@@ -59,20 +94,20 @@ impl<I: Iterator<Item=char>> Lexer<I> {
                 '0'...'9' |
                 'a'...'z' |
                 'A'...'Z' => val.push(c),
-                _ => {
-                    self.saved_char = Some(c);
-                    break;
-                },
+                _ => break,
             };
         }
 
+        self.iter.save();
+
         Some(match self.keywords.get(&val).cloned() {
             Some(t) => t,
-            None => Token::Ident(val),
+            None => Ident(val),
         })
     }
 
     fn lex_constant(&mut self, t: char) -> Option<Token> {
+        #[derive(PartialEq)]
         enum State {
             Int,
             Trail,
@@ -83,25 +118,25 @@ impl<I: Iterator<Item=char>> Lexer<I> {
 
         let mut state = State::Int;
 
-        for c in self.iter.by_ref().skip(1) {
+        for c in self.iter.by_ref() {
             state = match state {
                 State::Int => match c {
                     '0'...'1' if t == 'b' => State::Int,
                     '0'...'7' if t == 'o' => State::Int,
                     '0'...'9' |
                     'a'...'f' |
-                    'A'...'F' if t == 'x' || t == 'X' => State::Int,
+                    'A'...'F' if t == 'x' => State::Int,
                     '_' |
                     'a'...'z' |
                     'A'...'Z' => State::Trail,
-                    _         => {self.saved_char = Some(c); break;},
+                    _         => break,
                 },
                 State::Trail => match c {
                     '_' |
                     '0'...'9' |
                     'a'...'z' |
                     'A'...'Z' => State::Trail,
-                    _         => {self.saved_char = Some(c); break;},
+                    _         => break,
                 },
             };
 
@@ -111,10 +146,13 @@ impl<I: Iterator<Item=char>> Lexer<I> {
             };
         }
 
+        self.iter.save();
+
         Some(match t {
             'b' => Token::Binary { v: val, t: trail },
             'o' => Token::Octal { v: val, t: trail },
-            _   => Token::Hexadecimal { v: val, t: trail },
+            'x' => Token::Hexadecimal { v: val, t: trail },
+            _ => unreachable!(),
         })
     }
 
@@ -142,14 +180,14 @@ impl<I: Iterator<Item=char>> Lexer<I> {
                     'e'|'E'   => State::ExpSign,
                     'a'...'z' |
                     'A'...'Z' => State::IntTrail,
-                    _         => {self.saved_char = Some(c); break;},
+                    _         => break,
                 },
                 State::Dec => match c {
                     '0'...'9' => State::Dec,
                     'e'|'E'   => State::ExpSign,
                     'a'...'z' |
                     'A'...'Z' => State::FloatTrail,
-                    _         => {self.saved_char = Some(c); break;},
+                    _         => break,
                 },
                 State::ExpSign => match c {
                     '+'|'-' |
@@ -157,7 +195,6 @@ impl<I: Iterator<Item=char>> Lexer<I> {
                     _         => {
                         println!("Warning: empty exponent");
                         val.pop();
-                        self.saved_char = Some(c);
                         break;
                     },
                 },
@@ -165,19 +202,19 @@ impl<I: Iterator<Item=char>> Lexer<I> {
                     '0'...'9' => State::Exp,
                     'a'...'z' |
                     'A'...'Z' => State::FloatTrail,
-                    _         => {self.saved_char = Some(c); break;},
+                    _         => break,
                 },
                 State::IntTrail => match c {
                     '0'...'9' |
                     'a'...'z' |
                     'A'...'Z' => State::IntTrail,
-                    _         => {self.saved_char = Some(c); break;},
+                    _         => break,
                 },
                 State::FloatTrail => match c {
                     '0'...'9' |
                     'a'...'z' |
                     'A'...'Z' => State::FloatTrail,
-                    _         => {self.saved_char = Some(c); break;},
+                    _         => break,
                 },
             };
 
@@ -187,7 +224,9 @@ impl<I: Iterator<Item=char>> Lexer<I> {
                 _ => val.push(c),
             }
         }
-       
+
+        self.iter.save();
+
         Some(match state {
             State::Int |
             State::IntTrail => Token::Decimal { v: val, t: trail },
@@ -280,7 +319,7 @@ impl<I: Iterator<Item=char>> Lexer<I> {
         let mut state = State::Other;
         let mut depth = 0;
 
-        for c in self.iter.by_ref().skip(1) {
+        for c in self.iter.by_ref() {
             state = match state {
                 State::Other => match c {
                     '/' => State::Slash,
@@ -288,7 +327,7 @@ impl<I: Iterator<Item=char>> Lexer<I> {
                     _ => State::Other,
                 },
                 State::Slash => match c {
-                    '*' => {depth = depth + 1; State::Other}
+                    '*' => {depth += 1; State::Other}
                     _ => State::Other,
                 },
                 State::Star => match c {
@@ -303,50 +342,50 @@ impl<I: Iterator<Item=char>> Lexer<I> {
     }
 }
 
-impl<I: Iterator<Item=char>> Iterator for Lexer<I> {
+impl<I> Iterator for Lexer<I>
+where I: Iterator<Item=char> {
     type Item = Token;
 
     fn next(&mut self) -> Option<Self::Item> {
-        macro_rules! next {
-            ( $($ty:ident)::+ ) => {{
-                self.iter.next();
-                Some($($ty)::*)
-            }};
-        }
+        self.skip_whitespace();
 
-        let c = match self.skip_whitespace() {
+        let c = match self.iter.next() {
             Some(c) => c,
-            None => return None,
+            None => return self.eof.take(),
         };
 
-        match (c, self.iter.peek().cloned()) {
+        match (c, self.iter.next()) {
             ('/', Some('/')) => {self.single_line_comment(); self.next()},
             ('/', Some('*')) => {self.multi_line_comment(); self.next()},
-            ('&', Some('&')) => next!(Token::And),
-            ('|', Some('|')) => next!(Token::Or),
-            ('=', Some('=')) => next!(Token::Equal),
-            ('!', Some('=')) => next!(Token::NotEqual),
-            ('<', Some('=')) => next!(Token::LessEqual),
-            ('>', Some('=')) => next!(Token::GreaterEqual),
-            ('+', Some('+')) => next!(Token::Increment),
-            ('-', Some('-')) => next!(Token::Decrement),
-            ('+', Some('=')) => next!(Token::AssignPlus),
-            ('-', Some('=')) => next!(Token::AssignMinus),
-            ('*', Some('=')) => next!(Token::AssignMultiply),
-            ('/', Some('=')) => next!(Token::AssignDivide),
-            ('%', Some('=')) => next!(Token::AssignMod),
-            ('-', Some('>')) => next!(Token::Arrow),
-            ('_', _) |
-            ('a'...'z', _) |
-            ('A'...'Z', _) => self.lex_ident(c),
-            ('0', Some(t @ 'b')) |
-            ('0', Some(t @ 'o')) |
-            ('0', Some(t @ 'x')) |
-            ('0', Some(t @ 'X')) => self.lex_constant(t),
-            //('.', Some('0'...'9')) |
-            ('0'...'9', _) => self.lex_decimal(c),
-            ('"', _) => self.lex_str_literal(),
-            (_, _) => Some(Token::Term(c)),
+            ('&', Some('&')) => Some(And),
+            ('|', Some('|')) => Some(Or),
+            ('=', Some('=')) => Some(Equal),
+            ('!', Some('=')) => Some(NotEqual),
+            ('<', Some('=')) => Some(LessEqual),
+            ('>', Some('=')) => Some(GreaterEqual),
+            ('+', Some('+')) => Some(Increment),
+            ('-', Some('-')) => Some(Decrement),
+            ('+', Some('=')) => Some(AssignPlus),
+            ('-', Some('=')) => Some(AssignMinus),
+            ('*', Some('=')) => Some(AssignMultiply),
+            ('/', Some('=')) => Some(AssignDivide),
+            ('%', Some('=')) => Some(AssignMod),
+            ('-', Some('>')) => Some(Arrow),
+            ('0', Some('b')) => self.lex_constant('b'),
+            ('0', Some('o')) => self.lex_constant('o'),
+            ('0', Some('x')) |
+            ('0', Some('X')) => self.lex_constant('x'),
+            (_, _) => {
+                self.iter.save();
+                match c {
+                    '0'...'9' => self.lex_decimal(c),
+                    'a'...'z' |
+                    'A'...'Z' |
+                    '_' => self.lex_ident(c),
+                    '"' => self.lex_str_literal(),
+                    _ => Some(Token::Term(c)),
+                }
+            },
         }
     }
 }
